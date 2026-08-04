@@ -1,0 +1,60 @@
+# 自动打包知识库（免费 CDN 分发版）
+#
+# 触发条件：往 main 分支推送 md/txt/html 文件时自动运行。
+# 也可以在 Actions 页面手动点 "Run workflow" 触发。
+#
+# 工作原理：
+#   1. 把仓库里所有 md/txt/html 合并成 1 个 kb_bundle.json
+#   2. 把 kb_bundle.json 提交回仓库 main 分支
+#   3. 刷新 jsDelivr CDN 缓存，让最新内容立刻可读
+#
+# Skill 检索时从 jsDelivr 拉 kb_bundle.json（免费、无限次、国内有加速）
+#
+# 注意：用 GITHUB_TOKEN 推送的 commit 不会再次触发本工作流（GitHub 内置防循环），不会死循环。
+
+name: Build Bundle
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.md'
+      - '**/*.txt'
+      - '**/*.html'
+      - '**/*.htm'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build bundle
+        run: python scripts/build_bundle.py
+
+      - name: Commit bundle to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add kb_bundle.json
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: auto-update kb_bundle.json"
+            git push
+          fi
+
+      - name: Refresh jsDelivr CDN cache
+        run: |
+          sleep 5
+          curl -sf "https://purge.jsdelivr.net/gh/CCC-ybw/ux-research-kb@main/kb_bundle.json" || true
